@@ -47,31 +47,60 @@ fn is_viable_location(generator: &mut Generator, coords: &Position) -> bool {
     (unsafe { isViableStructurePos(STRUCT_TYPE, generator, coords.x, coords.z, 0) } == 1)
 }
 
-const fn normalize_position(coords: &Position) -> Position {
-    Position {
-        x: coords.x - (coords.x % 16),
-        z: coords.z - (coords.z % 16),
-    }
+const fn hyp_distance(p1: &Position, p2: &Position) -> i32 {
+    (p2.x - p1.x).pow(2) + (p2.z - p1.z).pow(2)
 }
 
 fn gen(generator: &mut Generator, seed: u64, starting_position: &Position) -> Option<Position> {
-    let normalized_position = normalize_position(starting_position);
     for offset in (0..100_000).step_by(16) {
-        for x in (normalized_position.x - offset..normalized_position.x + offset).step_by(16) {
-            for z in (normalized_position.z - offset..normalized_position.z + offset).step_by(16) {
-                let att = gen_attempt(
+        let x_neg_z_iter = (starting_position.x - offset..starting_position.x + offset)
+            .step_by(16)
+            .map(|x| Position {
+                x,
+                z: starting_position.z - offset,
+            });
+        let x_pos_z_iter = (starting_position.x - offset..starting_position.x + offset)
+            .step_by(16)
+            .map(|x| Position {
+                x,
+                z: starting_position.z + offset,
+            });
+        let z_neg_x_iter = (starting_position.z - offset..starting_position.z + offset)
+            .step_by(16)
+            .map(|z| Position {
+                x: starting_position.x - offset,
+                z,
+            });
+        let z_pos_x_iter = (starting_position.z - offset..starting_position.z + offset)
+            .step_by(16)
+            .map(|z| Position {
+                x: starting_position.x + offset,
+                z,
+            });
+        let combined = x_neg_z_iter
+            .chain(x_pos_z_iter)
+            .chain(z_neg_x_iter)
+            .chain(z_pos_x_iter);
+        if let Some(found_pos) = combined
+            .filter_map(|p| {
+                let gen_p = gen_attempt(
                     &Position {
-                        x: x / 16,
-                        z: z / 16,
+                        x: p.x / 16,
+                        z: p.z / 16,
                     },
                     seed,
-                );
-                if let Some(p) = att {
-                    if is_viable_location(generator, &p) {
-                        return Some(p);
-                    }
+                )?;
+                if is_viable_location(generator, &gen_p) {
+                    Some(gen_p)
+                } else {
+                    None
                 }
-            }
+            })
+            .min_by(|p1, p2| {
+                hyp_distance(starting_position, p1).cmp(&hyp_distance(starting_position, p2))
+            })
+        {
+            return Some(found_pos);
         }
     }
     None
